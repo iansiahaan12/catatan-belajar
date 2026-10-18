@@ -1,2 +1,5 @@
 node_modules/
 .DS_Store
+# Data pengguna dan catatan jangan ikut ke repositori
+data.json
+users.json

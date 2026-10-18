@@ -19,15 +19,29 @@ function tampilPesan(teks, ok = false) {
   pesan.className = "pesan" + (ok ? " ok" : "");
 }
 
-// Pembungkus fetch: jika sesi habis (401), arahkan kembali ke halaman login
-async function request(url, options) {
-  const res = await fetch(url, options);
+// Pembungkus fetch.
+// - 401 (sesi habis / belum login): arahkan ke halaman login
+// - gagal terhubung atau respon bukan JSON: tampilkan pesan, kembalikan null
+async function request(url, options, senyap = false) {
+  let res;
+  try {
+    res = await fetch(url, options);
+  } catch (err) {
+    if (!senyap) {
+      tampilPesan("Tidak dapat terhubung ke server. Pastikan server berjalan, lalu buka lewat http://localhost:3000.");
+    }
+    return null;
+  }
   if (res.status === 401) {
     window.location.href = "/login.html";
-    throw new Error("Belum login");
+    return null;
   }
-  const data = await res.json();
-  return { ok: res.ok, data };
+  try {
+    return { ok: res.ok, data: await res.json() };
+  } catch (err) {
+    if (!senyap) tampilPesan(`Server memberi respon yang tidak terduga (kode ${res.status}).`);
+    return null;
+  }
 }
 
 // Mencegah XSS: teks pengguna tidak dimasukkan lewat innerHTML
@@ -43,7 +57,9 @@ function el(tag, props = {}, ...children) {
 // ---------- READ ----------
 async function muatCatatan() {
   const q = encodeURIComponent(cari.value.trim());
-  const { data } = await request(`${API}?q=${q}`);
+  const hasil = await request(`${API}?q=${q}`);
+  if (!hasil) return;
+  const data = hasil.data;
 
   daftar.innerHTML = ""; // dikosongkan saja, tanpa menyisipkan teks pengguna
   kosong.classList.toggle("hidden", data.length > 0);
@@ -72,13 +88,14 @@ form.addEventListener("submit", async (e) => {
   };
   const id = inputId.value; // kosong = tambah, terisi = ubah
 
-  const { ok, data } = await request(id ? `${API}/${id}` : API, {
+  const hasil = await request(id ? `${API}/${id}` : API, {
     method: id ? "PUT" : "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
+  if (!hasil) return;
 
-  if (!ok) return tampilPesan(data.pesan);
+  if (!hasil.ok) return tampilPesan(hasil.data.pesan);
 
   tampilPesan(id ? "Catatan diperbarui." : "Catatan ditambahkan.", true);
   resetForm();
@@ -110,8 +127,9 @@ btnBatal.addEventListener("click", () => {
 // ---------- DELETE ----------
 async function hapus(id) {
   if (!confirm("Yakin ingin menghapus catatan ini?")) return;
-  const { ok, data } = await request(`${API}/${id}`, { method: "DELETE" });
-  tampilPesan(data.pesan, ok);
+  const hasil = await request(`${API}/${id}`, { method: "DELETE" });
+  if (!hasil) return;
+  tampilPesan(hasil.data.pesan, hasil.ok);
   muatCatatan();
 }
 
@@ -122,10 +140,16 @@ btnLogout.addEventListener("click", async () => {
 });
 
 async function muatUser() {
-  const { data } = await request("/api/me");
-  namaUser.textContent = `Masuk sebagai ${data.username}`;
+  const hasil = await request("/api/me", undefined, true);
+  if (hasil && hasil.ok) namaUser.textContent = `Masuk sebagai ${hasil.data.username}`;
 }
 
 cari.addEventListener("input", muatCatatan);
-muatUser();
-muatCatatan();
+
+// Halaman dibuka langsung dari file (file://) tidak dapat memanggil API
+if (window.location.protocol === "file:") {
+  tampilPesan("Halaman dibuka langsung dari file. Jalankan server (npm start) lalu buka http://localhost:3000.");
+} else {
+  muatUser();
+  muatCatatan();
+}

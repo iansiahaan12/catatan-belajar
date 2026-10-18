@@ -2,30 +2,49 @@ const express = require("express");
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
+const { promisify } = require("util");
+const scrypt = promisify(crypto.scrypt);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const DB_FILE = path.join(__dirname, "data.json");
+const USERS_FILE = path.join(__dirname, "users.json");
 const PUBLIC_DIR = path.join(__dirname, "public");
 
 app.use(express.json());
 
-// ====================== AUTENTIKASI ======================
+// ====================== PENGGUNA & SESI ======================
 const SESSION_TTL = 2 * 60 * 60 * 1000; // sesi berlaku 2 jam
 const sessions = new Map(); // token -> { username, expires }
 
-// Password disimpan sebagai hash (scrypt), bukan teks biasa
-const SALT = crypto.randomBytes(16);
-function hashPassword(password) {
-  return crypto.scryptSync(password, SALT, 64);
+// Data pengguna disimpan di users.json: { username: { salt, hash } }
+function loadUsers() {
+  if (!fs.existsSync(USERS_FILE)) return new Map();
+  // Jika file ada tetapi rusak, biarkan galat muncul (jangan dianggap kosong)
+  return new Map(Object.entries(JSON.parse(fs.readFileSync(USERS_FILE, "utf8"))));
 }
 
-// Akun demo. Ubah lewat environment variable APP_USER dan APP_PASS.
-const USERS = {
-  [process.env.APP_USER || "admin"]: hashPassword(
-    process.env.APP_PASS || "admin123"
-  ),
-};
+function saveUsers(users) {
+  fs.writeFileSync(USERS_FILE, JSON.stringify(Object.fromEntries(users), null, 2));
+}
+
+const users = loadUsers();
+
+// Password disimpan sebagai hash scrypt dengan salt acak untuk tiap pengguna
+async function buatRecord(password) {
+  const salt = crypto.randomBytes(16);
+  const hash = await scrypt(password, salt, 64);
+  return { salt: salt.toString("hex"), hash: hash.toString("hex") };
+}
+
+// Akun demo dibuat otomatis HANYA jika belum ada pengguna sama sekali
+async function buatAkunDemo() {
+  if (users.size > 0) return;
+  const nama = (process.env.APP_USER || "admin").toLowerCase();
+  users.set(nama, await buatRecord(process.env.APP_PASS || "admin123"));
+  saveUsers(users);
+  console.log(`Akun demo dibuat: ${nama} (ganti passwordnya sebelum dipakai sungguhan).`);
+}
 
 function parseCookies(req) {
   const out = {};
@@ -49,6 +68,15 @@ function getSession(req) {
   return session;
 }
 
+function mulaiSesi(res, username) {
+  const token = crypto.randomBytes(32).toString("hex");
+  sessions.set(token, { username, expires: Date.now() + SESSION_TTL });
+  res.setHeader(
+    "Set-Cookie",
+    `sid=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${SESSION_TTL / 1000}`
+  );
+}
+
 // Untuk API: balas 401 jika belum login
 function requireAuthApi(req, res, next) {
   if (!getSession(req)) {
@@ -63,28 +91,71 @@ function requireAuthPage(req, res, next) {
   next();
 }
 
-// ---------- LOGIN ----------
-app.post("/api/login", (req, res) => {
-  const { username, password } = req.body || {};
-  const stored =
-    typeof username === "string" &&
-    Object.prototype.hasOwnProperty.call(USERS, username)
-      ? USERS[username]
-      : null;
-  const attempt = hashPassword(typeof password === "string" ? password : "");
-  const valid = stored && crypto.timingSafeEqual(stored, attempt);
-
-  if (!valid) {
-    return res.status(401).json({ pesan: "Username atau password salah." });
+function validasiRegistrasi(body) {
+  const errors = [];
+  if (typeof body.username !== "string" || !/^[a-zA-Z0-9_]{3,20}$/.test(body.username)) {
+    errors.push("Username 3-20 karakter, hanya huruf, angka, dan underscore.");
   }
+  if (typeof body.password !== "string" || body.password.length < 8) {
+    errors.push("Password minimal 8 karakter.");
+  } else if (body.password.length > 72) {
+    errors.push("Password maksimal 72 karakter.");
+  }
+  return errors;
+}
 
-  const token = crypto.randomBytes(32).toString("hex");
-  sessions.set(token, { username, expires: Date.now() + SESSION_TTL });
-  res.setHeader(
-    "Set-Cookie",
-    `sid=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${SESSION_TTL / 1000}`
-  );
-  res.json({ pesan: "Login berhasil.", username });
+// ---------- REGISTRASI ----------
+app.post("/api/register", async (req, res) => {
+  try {
+    const body = req.body || {};
+    const errors = validasiRegistrasi(body);
+    if (errors.length) return res.status(400).json({ pesan: errors.join(" ") });
+
+    const nama = body.username.toLowerCase(); // username tidak membedakan huruf besar/kecil
+    if (users.has(nama)) {
+      return res.status(409).json({ pesan: "Username sudah dipakai." });
+    }
+
+    const record = await buatRecord(body.password);
+
+    // Periksa ulang setelah proses hashing (yang asinkron): bisa jadi ada
+    // pendaftar lain dengan username sama yang selesai lebih dulu.
+    if (users.has(nama)) {
+      return res.status(409).json({ pesan: "Username sudah dipakai." });
+    }
+    users.set(nama, record);
+    saveUsers(users);
+
+    mulaiSesi(res, nama); // setelah daftar, langsung masuk
+    res.status(201).json({ pesan: "Registrasi berhasil.", username: nama });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ pesan: "Terjadi kesalahan pada server." });
+  }
+});
+
+// Hash palsu agar waktu proses sama baik username ada maupun tidak
+const SALT_PALSU = crypto.randomBytes(16);
+
+// ---------- LOGIN ----------
+app.post("/api/login", async (req, res) => {
+  try {
+    const { username, password } = req.body || {};
+    const nama = typeof username === "string" ? username.toLowerCase() : "";
+    const record = users.get(nama);
+    const salt = record ? Buffer.from(record.salt, "hex") : SALT_PALSU;
+    const attempt = await scrypt(typeof password === "string" ? password : "", salt, 64);
+    const valid = record && crypto.timingSafeEqual(Buffer.from(record.hash, "hex"), attempt);
+
+    if (!valid) {
+      return res.status(401).json({ pesan: "Username atau password salah." });
+    }
+    mulaiSesi(res, nama);
+    res.json({ pesan: "Login berhasil.", username: nama });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ pesan: "Terjadi kesalahan pada server." });
+  }
 });
 
 // ---------- LOGOUT ----------
@@ -107,7 +178,7 @@ app.get(["/", "/index.html"], requireAuthPage, (req, res) => {
 });
 app.use(express.static(PUBLIC_DIR));
 
-// ====================== PENYIMPANAN (file JSON) ======================
+// ====================== PENYIMPANAN CATATAN (file JSON) ======================
 function readData() {
   try {
     return JSON.parse(fs.readFileSync(DB_FILE, "utf8"));
@@ -136,11 +207,13 @@ function validate(body) {
 }
 
 // ====================== API CATATAN (wajib login) ======================
+// Setiap catatan milik satu pengguna; pengguna lain tidak dapat melihat atau mengubahnya.
 app.use("/api/catatan", requireAuthApi);
 
-// READ (semua, dengan pencarian ?q=)
+// READ (semua milik pengguna, dengan pencarian ?q=)
 app.get("/api/catatan", (req, res) => {
-  let data = readData();
+  const user = getSession(req).username;
+  let data = readData().filter((c) => c.pemilik === user);
   const q = (req.query.q || "").toLowerCase();
   if (q) {
     data = data.filter(
@@ -154,7 +227,10 @@ app.get("/api/catatan", (req, res) => {
 
 // READ (satu catatan)
 app.get("/api/catatan/:id", (req, res) => {
-  const item = readData().find((c) => c.id === Number(req.params.id));
+  const user = getSession(req).username;
+  const item = readData().find(
+    (c) => c.id === Number(req.params.id) && c.pemilik === user
+  );
   if (!item) return res.status(404).json({ pesan: "Catatan tidak ditemukan." });
   res.json(item);
 });
@@ -171,6 +247,7 @@ app.post("/api/catatan", (req, res) => {
     judul: req.body.judul.trim(),
     isi: (req.body.isi || "").trim(),
     status: req.body.status || "Belum",
+    pemilik: getSession(req).username,
     dibuat: new Date().toISOString(),
   };
   data.push(baru);
@@ -183,8 +260,11 @@ app.put("/api/catatan/:id", (req, res) => {
   const errors = validate(req.body);
   if (errors.length) return res.status(400).json({ pesan: errors.join(" ") });
 
+  const user = getSession(req).username;
   const data = readData();
-  const idx = data.findIndex((c) => c.id === Number(req.params.id));
+  const idx = data.findIndex(
+    (c) => c.id === Number(req.params.id) && c.pemilik === user
+  );
   if (idx === -1)
     return res.status(404).json({ pesan: "Catatan tidak ditemukan." });
 
@@ -200,8 +280,11 @@ app.put("/api/catatan/:id", (req, res) => {
 
 // DELETE
 app.delete("/api/catatan/:id", (req, res) => {
+  const user = getSession(req).username;
   const data = readData();
-  const idx = data.findIndex((c) => c.id === Number(req.params.id));
+  const idx = data.findIndex(
+    (c) => c.id === Number(req.params.id) && c.pemilik === user
+  );
   if (idx === -1)
     return res.status(404).json({ pesan: "Catatan tidak ditemukan." });
 
@@ -210,6 +293,8 @@ app.delete("/api/catatan/:id", (req, res) => {
   res.json({ pesan: "Catatan dihapus.", dihapus });
 });
 
-app.listen(PORT, () => {
-  console.log(`Server berjalan di http://localhost:${PORT}`);
+buatAkunDemo().then(() => {
+  app.listen(PORT, () => {
+    console.log(`Server berjalan di http://localhost:${PORT}`);
+  });
 });

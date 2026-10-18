@@ -28,7 +28,7 @@ form.addEventListener("submit", async (e) => {
     }
     window.location.href = "/"; // login berhasil
   } catch (err) {
-    pesan.textContent = "Tidak dapat terhubung ke server.";
+    pesan.textContent = "Tidak dapat terhubung ke server. Pastikan server berjalan, lalu buka lewat http://localhost:3000.";
   } finally {
     btnLogin.disabled = false;
   }

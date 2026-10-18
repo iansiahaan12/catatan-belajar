@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Daftar - Catatan Belajar</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <main class="container login-wrap">
+    <h1>📚 Catatan Belajar</h1>
+    <p class="sub">Buat akun baru</p>
+
+    <section class="card">
+      <form id="form-register">
+        <label for="username">Username</label>
+        <input type="text" id="username" maxlength="20" autocomplete="username"
+               placeholder="3-20 karakter: huruf, angka, _" required autofocus />
+
+        <label for="password">Password</label>
+        <input type="password" id="password" maxlength="72" autocomplete="new-password"
+               placeholder="Minimal 8 karakter" required />
+
+        <label for="konfirmasi">Ulangi Password</label>
+        <input type="password" id="konfirmasi" maxlength="72" autocomplete="new-password" required />
+
+        <div class="actions">
+          <button type="submit" id="btn-daftar">Daftar</button>
+        </div>
+        <p id="pesan" class="pesan" role="alert"></p>
+      </form>
+      <p class="alt">Sudah punya akun? <a href="login.html">Masuk</a></p>
+    </section>
+  </main>
+
+  <script src="register.js"></script>
+</body>
+</html>
