@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Catatan Belajar</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <main class="container">
+    <h1>📚 Catatan Belajar</h1>
+    <p class="sub">Aplikasi CRUD sederhana — Tugas I Pengembangan Aplikasi Berbasis Web</p>
+
+    <section class="card">
+      <h2 id="form-title">Tambah Catatan</h2>
+      <form id="form-catatan">
+        <input type="hidden" id="catatan-id" />
+        <label for="judul">Judul</label>
+        <input type="text" id="judul" maxlength="100" placeholder="Contoh: Belajar Express.js" required />
+
+        <label for="isi">Isi Catatan</label>
+        <textarea id="isi" rows="3" placeholder="Tulis ringkasan materi..."></textarea>
+
+        <label for="status">Status</label>
+        <select id="status">
+          <option value="Belum">Belum</option>
+          <option value="Sedang">Sedang</option>
+          <option value="Selesai">Selesai</option>
+        </select>
+
+        <div class="actions">
+          <button type="submit" id="btn-simpan">Simpan</button>
+          <button type="button" id="btn-batal" class="secondary hidden">Batal</button>
+        </div>
+        <p id="pesan" class="pesan" role="alert"></p>
+      </form>
+    </section>
+
+    <section class="card">
+      <div class="toolbar">
+        <h2>Daftar Catatan</h2>
+        <input type="search" id="cari" placeholder="Cari catatan..." />
+      </div>
+      <ul id="daftar" class="daftar"></ul>
+      <p id="kosong" class="kosong hidden">Belum ada catatan.</p>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

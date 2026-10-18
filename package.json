@@ -1,0 +1,12 @@
+{
+  "name": "catatan-belajar",
+  "version": "1.0.0",
+  "description": "Aplikasi CRUD sederhana Catatan Belajar (Tugas I PABWE)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}
