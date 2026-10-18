@@ -7,8 +7,9 @@ const scrypt = promisify(crypto.scrypt);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const DB_FILE = path.join(__dirname, "data.json");
-const USERS_FILE = path.join(__dirname, "users.json");
+const DATA_DIR = process.env.VERCEL ? "/tmp" : __dirname;
+const DB_FILE = path.join(DATA_DIR, "data.json");
+const USERS_FILE = path.join(DATA_DIR, "users.json");
 const PUBLIC_DIR = path.join(__dirname, "public");
 
 app.use(express.json());
@@ -19,13 +20,25 @@ const sessions = new Map(); // token -> { username, expires }
 
 // Data pengguna disimpan di users.json: { username: { salt, hash } }
 function loadUsers() {
-  if (!fs.existsSync(USERS_FILE)) return new Map();
-  // Jika file ada tetapi rusak, biarkan galat muncul (jangan dianggap kosong)
-  return new Map(Object.entries(JSON.parse(fs.readFileSync(USERS_FILE, "utf8"))));
+  const candidates = [USERS_FILE, path.join(__dirname, "users.json")];
+  for (const file of candidates) {
+    if (fs.existsSync(file)) {
+      try {
+        return new Map(Object.entries(JSON.parse(fs.readFileSync(file, "utf8"))));
+      } catch (err) {
+        console.error("Gagal membaca users.json:", err.message);
+      }
+    }
+  }
+  return new Map();
 }
 
 function saveUsers(users) {
-  fs.writeFileSync(USERS_FILE, JSON.stringify(Object.fromEntries(users), null, 2));
+  try {
+    fs.writeFileSync(USERS_FILE, JSON.stringify(Object.fromEntries(users), null, 2));
+  } catch (err) {
+    console.error("Gagal menyimpan users.json:", err.message);
+  }
 }
 
 const users = loadUsers();
@@ -68,12 +81,16 @@ function getSession(req) {
   return session;
 }
 
-function mulaiSesi(res, username) {
+function mulaiSesi(res, username, req) {
   const token = crypto.randomBytes(32).toString("hex");
   sessions.set(token, { username, expires: Date.now() + SESSION_TTL });
+  const isHttps = req && (req.secure || req.headers["x-forwarded-proto"] === "https");
+  const cookieFlags = isHttps
+    ? "HttpOnly; SameSite=None; Secure; Path=/;"
+    : "HttpOnly; SameSite=Lax; Path=/;";
   res.setHeader(
     "Set-Cookie",
-    `sid=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${SESSION_TTL / 1000}`
+    `sid=${token}; ${cookieFlags} Max-Age=${SESSION_TTL / 1000}`
   );
 }
 
@@ -126,7 +143,7 @@ app.post("/api/register", async (req, res) => {
     users.set(nama, record);
     saveUsers(users);
 
-    mulaiSesi(res, nama); // setelah daftar, langsung masuk
+    mulaiSesi(res, nama, req); // setelah daftar, langsung masuk
     res.status(201).json({ pesan: "Registrasi berhasil.", username: nama });
   } catch (err) {
     console.error(err);
@@ -150,7 +167,7 @@ app.post("/api/login", async (req, res) => {
     if (!valid) {
       return res.status(401).json({ pesan: "Username atau password salah." });
     }
-    mulaiSesi(res, nama);
+    mulaiSesi(res, nama, req);
     res.json({ pesan: "Login berhasil.", username: nama });
   } catch (err) {
     console.error(err);
@@ -162,7 +179,11 @@ app.post("/api/login", async (req, res) => {
 app.post("/api/logout", (req, res) => {
   const token = parseCookies(req).sid;
   if (token) sessions.delete(token);
-  res.setHeader("Set-Cookie", "sid=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0");
+  const isHttps = req && (req.secure || req.headers["x-forwarded-proto"] === "https");
+  const cookieFlags = isHttps
+    ? "HttpOnly; SameSite=None; Secure; Path=/;"
+    : "HttpOnly; SameSite=Lax; Path=/;";
+  res.setHeader("Set-Cookie", `sid=; ${cookieFlags} Max-Age=0`);
   res.json({ pesan: "Logout berhasil." });
 });
 
@@ -180,15 +201,25 @@ app.use(express.static(PUBLIC_DIR));
 
 // ====================== PENYIMPANAN CATATAN (file JSON) ======================
 function readData() {
-  try {
-    return JSON.parse(fs.readFileSync(DB_FILE, "utf8"));
-  } catch (err) {
-    return [];
+  const candidates = [DB_FILE, path.join(__dirname, "data.json")];
+  for (const file of candidates) {
+    if (fs.existsSync(file)) {
+      try {
+        return JSON.parse(fs.readFileSync(file, "utf8"));
+      } catch (err) {
+        console.error("Gagal membaca data.json:", err.message);
+      }
+    }
   }
+  return [];
 }
 
 function writeData(data) {
-  fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
+  try {
+    fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
+  } catch (err) {
+    console.error("Gagal menyimpan data.json:", err.message);
+  }
 }
 
 function validate(body) {
@@ -293,8 +324,25 @@ app.delete("/api/catatan/:id", (req, res) => {
   res.json({ pesan: "Catatan dihapus.", dihapus });
 });
 
-buatAkunDemo().then(() => {
-  app.listen(PORT, () => {
-    console.log(`Server berjalan di http://localhost:${PORT}`);
-  });
+let initDemoPromise = buatAkunDemo().catch((err) => {
+  console.error("Gagal buat akun demo:", err.message);
 });
+
+// Pastikan inisialisasi akun demo selesai sebelum menangani request
+app.use(async (req, res, next) => {
+  if (initDemoPromise) {
+    await initDemoPromise;
+    initDemoPromise = null;
+  }
+  next();
+});
+
+if (!process.env.VERCEL) {
+  initDemoPromise.then(() => {
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(`Server berjalan di http://0.0.0.0:${PORT}`);
+    });
+  });
+}
+
+module.exports = app;
