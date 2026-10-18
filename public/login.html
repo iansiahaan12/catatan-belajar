@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Login - Catatan Belajar</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <main class="container login-wrap">
+    <h1>📚 Catatan Belajar</h1>
+    <p class="sub">Silakan login untuk melanjutkan</p>
+
+    <section class="card">
+      <form id="form-login">
+        <label for="username">Username</label>
+        <input type="text" id="username" autocomplete="username" required autofocus />
+
+        <label for="password">Password</label>
+        <input type="password" id="password" autocomplete="current-password" required />
+
+        <div class="actions">
+          <button type="submit" id="btn-login">Masuk</button>
+        </div>
+        <p id="pesan" class="pesan" role="alert"></p>
+      </form>
+    </section>
+  </main>
+
+  <script src="login.js"></script>
+</body>
+</html>
