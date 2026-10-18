@@ -8,8 +8,12 @@ body {
 }
 
 .container { max-width: 720px; margin: 0 auto; padding: 24px 16px 48px; }
+.login-wrap { max-width: 420px; padding-top: 64px; }
 h1 { margin-bottom: 0; }
 .sub { color: #6b7280; margin-top: 4px; }
+
+.topbar { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.userbox { display: flex; align-items: center; gap: 8px; font-size: 14px; color: #4b5563; padding-top: 6px; }
 
 .card {
   background: #fff;
@@ -21,7 +25,7 @@ h1 { margin-bottom: 0; }
 
 label { display: block; margin: 12px 0 4px; font-weight: 600; font-size: 14px; }
 
-input[type="text"], input[type="search"], textarea, select {
+input[type="text"], input[type="password"], input[type="search"], textarea, select {
   width: 100%;
   padding: 10px;
   border: 1px solid #d1d5db;
@@ -41,6 +45,7 @@ button {
   cursor: pointer;
 }
 button:hover { background: #4338ca; }
+button:disabled { opacity: 0.6; cursor: not-allowed; }
 button.secondary { background: #e5e7eb; color: #374151; }
 button.secondary:hover { background: #d1d5db; }
 button.danger { background: #dc2626; }
@@ -66,3 +71,10 @@ button.small { padding: 5px 10px; font-size: 13px; }
 .pesan.ok { color: #059669; }
 .kosong { text-align: center; color: #9ca3af; }
 .hidden { display: none; }
+
+/* Tampilan ponsel */
+@media (max-width: 520px) {
+  .toolbar { flex-direction: column; align-items: stretch; }
+  .toolbar input { max-width: none; }
+  .topbar { flex-direction: column; }
+}
